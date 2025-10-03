@@ -100,7 +100,7 @@ export default function Home() {
       }
       
       console.log('Sample sent to MailHog, waiting for detection...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, Number(process.env.DEFAULT_TIMEOUT)));
       const emailResponse = await fetch('/api/emails');
       const emailData = await emailResponse.json();
       

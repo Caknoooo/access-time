@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const MAILHOG_API_URL = 'http://localhost:8025/api/v2';
-const TEST_EMAIL = 'test@local.test';
+const MAILHOG_API_URL = `http://${process.env.MAILHOG_HOST}:${process.env.MAILHOG_WEB_PORT}/api/v2`;
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,7 +34,6 @@ export async function GET(request: NextRequest) {
       htmlContent = latestEmail.Body || '';
     }
     
-    // Clean up the HTML content
     htmlContent = htmlContent
       .replace(/\\r\\n/g, '\n')
       .replace(/\\n/g, '\n')
@@ -49,7 +47,6 @@ export async function GET(request: NextRequest) {
       subject: latestEmail.Content?.Headers?.Subject?.[0] || 'Test Email'
     });
   } catch (error) {
-    console.error('Email fetch error:', error);
     return NextResponse.json({ error: `Failed to fetch emails: ${error instanceof Error ? error.message : 'Unknown error'}` }, { status: 500 });
   }
 }

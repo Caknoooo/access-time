@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 import nodemailer from 'nodemailer';
+
 async function sendReportToMailHog(scanResults: any, originalHtml: string) {
   const timestamp = new Date().toISOString();
   const violationsCount = scanResults.violations?.length || 0;
@@ -8,179 +9,179 @@ async function sendReportToMailHog(scanResults: any, originalHtml: string) {
   const incompleteCount = scanResults.incomplete?.length || 0;
   const inapplicableCount = scanResults.inapplicable?.length || 0;
   const htmlReport = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Accessibility Scan Report</title>
-  <style>
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
-      line-height: 1.6; 
-      color: #333; 
-      max-width: 800px; 
-      margin: 0 auto; 
-      padding: 20px; 
-    }
-    .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 20px;
-      border-radius: 8px;
-      text-align: center;
-      margin-bottom: 30px;
-    }
-    .summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 15px;
-      margin-bottom: 30px;
-    }
-    .stat-card {
-      padding: 15px;
-      border-radius: 8px;
-      text-align: center;
-      color: white;
-      font-weight: bold;
-    }
-    .violations { background: #ef4444; }
-    .passes { background: #10b981; }
-    .incomplete { background: #f59e0b; }
-    .inapplicable { background: #6b7280; }
-    .violation-item {
-      background: #fee2e2;
-      border-left: 4px solid #ef4444;
-      padding: 15px;
-      margin-bottom: 10px;
-      border-radius: 4px;
-    }
-    .pass-item {
-      background: #d1fae5;
-      border-left: 4px solid #10b981;
-      padding: 15px;
-      margin-bottom: 10px;
-      border-radius: 4px;
-    }
-    .code {
-      background: #f3f4f6;
-      padding: 10px;
-      border-radius: 4px;
-      font-family: Monaco, monospace;
-      font-size: 12px;
-      margin: 10px 0;
-      overflow-x: auto;
-    }
-    .section {
-      margin-bottom: 30px;
-    }
-    h3 { color: #374151; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>🔍 Accessibility Scan Report</h1>
-    <p>Generated on ${timestamp}</p>
-  </div>
-  <div class="summary">
-    <div class="stat-card violations">
-      <div style="font-size: 24px;">${violationsCount}</div>
-      <div>Violations</div>
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Accessibility Scan Report</title>
+    <style>
+      body { 
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
+        line-height: 1.6; 
+        color: #333; 
+        max-width: 800px; 
+        margin: 0 auto; 
+        padding: 20px; 
+      }
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-bottom: 30px;
+      }
+      .stat-card {
+        padding: 15px;
+        border-radius: 8px;
+        text-align: center;
+        color: white;
+        font-weight: bold;
+      }
+      .violations { background: #ef4444; }
+      .passes { background: #10b981; }
+      .incomplete { background: #f59e0b; }
+      .inapplicable { background: #6b7280; }
+      .violation-item {
+        background: #fee2e2;
+        border-left: 4px solid #ef4444;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+      }
+      .pass-item {
+        background: #d1fae5;
+        border-left: 4px solid #10b981;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+      }
+      .code {
+        background: #f3f4f6;
+        padding: 10px;
+        border-radius: 4px;
+        font-family: Monaco, monospace;
+        font-size: 12px;
+        margin: 10px 0;
+        overflow-x: auto;
+      }
+      .section {
+        margin-bottom: 30px;
+      }
+      h3 { color: #374151; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px; }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>🔍 Accessibility Scan Report</h1>
+      <p>Generated on ${timestamp}</p>
     </div>
-    <div class="stat-card passes">
-      <div style="font-size: 24px;">${passesCount}</div>
-      <div>Passes</div>
-    </div>
-    <div class="stat-card incomplete">
-      <div style="font-size: 24px;">${incompleteCount}</div>
-      <div>Incomplete</div>
-    </div>
-    <div class="stat-card inapplicable">
-      <div style="font-size: 24px;">${inapplicableCount}</div>
-      <div>Inapplicable</div>
-    </div>
-  </div>
-  ${violationsCount > 0 ? `
-  <div class="section">
-    <h3>🚨 Accessibility Violations</h3>
-    ${scanResults.violations.map((violation: any, index: number) => `
-      <div class="violation-item">
-        <strong>${violation.id}</strong> - ${violation.description}<br>
-        <small>Impact: ${violation.impact}</small>
-        ${violation.nodes ? violation.nodes.filter((node: any) => node.failureSummary).map((node: any) => `
-          <div class="code">${node.failureSummary}</div>
-        `).join('') : ''}
+    <div class="summary">
+      <div class="stat-card violations">
+        <div style="font-size: 24px;">${violationsCount}</div>
+        <div>Violations</div>
       </div>
-    `).join('')}
-  </div>
-  ` : ''}
-  ${passesCount > 0 ? `
-  <div class="section">
-    <h3>✅ Passed Tests</h3>
-    ${scanResults.passes.map((pass: any, index: number) => `
-      <div class="pass-item">
-        <strong>${pass.id}</strong> - ${pass.description}<br>
-        <small>T ${pass.nodes ? pass.nodes.map((node: any) => node.target?.join(', ') || 'N/A').join(', ') : 'N/A'}</small>
+      <div class="stat-card passes">
+        <div style="font-size: 24px;">${passesCount}</div>
+        <div>Passes</div>
       </div>
-    `).join('')}
-  </div>
-  ` : ''}
-  ${incompleteCount > 0 ? `
-  <div class="section">
-    <h3>⚠️ Incomplete Tests</h3>
-    ${scanResults.incomplete.map((incomplete: any) => `
-      <div class="violation-item">
-        <strong>${incomplete.id}</strong> - ${incomplete.description}<br>
-        <small>Requires manual review</small>
+      <div class="stat-card incomplete">
+        <div style="font-size: 24px;">${incompleteCount}</div>
+        <div>Incomplete</div>
       </div>
-    `).join('')}
-  </div>
-  ` : ''}
-  <div class="section">
-    <h3>📊 Raw JSON Report</h3>
-    <div class="code">${JSON.stringify(scanResults, null, 2)}</div>
-  </div>
-  <div class="section">
-    <h3>📄 Original HTML</h3>
-    <div class="code">${originalHtml.substring(0, 500)}${originalHtml.length > 500 ? '...' : ''}</div>
-  </div>
-  <footer style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280;">
-    <p>Generated by AccessTime Email Accessibility Scanner</p>
-  </footer>
-</body>
-</html>
-  `;
+      <div class="stat-card inapplicable">
+        <div style="font-size: 24px;">${inapplicableCount}</div>
+        <div>Inapplicable</div>
+      </div>
+    </div>
+    ${violationsCount > 0 ? `
+    <div class="section">
+      <h3>🚨 Accessibility Violations</h3>
+      ${scanResults.violations.map((violation: any, index: number) => `
+        <div class="violation-item">
+          <strong>${violation.id}</strong> - ${violation.description}<br>
+          <small>Impact: ${violation.impact}</small>
+          ${violation.nodes ? violation.nodes.filter((node: any) => node.failureSummary).map((node: any) => `
+            <div class="code">${node.failureSummary}</div>
+          `).join('') : ''}
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+    ${passesCount > 0 ? `
+    <div class="section">
+      <h3>✅ Passed Tests</h3>
+      ${scanResults.passes.map((pass: any, index: number) => `
+        <div class="pass-item">
+          <strong>${pass.id}</strong> - ${pass.description}<br>
+          <small>T ${pass.nodes ? pass.nodes.map((node: any) => node.target?.join(', ') || 'N/A').join(', ') : 'N/A'}</small>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+    ${incompleteCount > 0 ? `
+    <div class="section">
+      <h3>⚠️ Incomplete Tests</h3>
+      ${scanResults.incomplete.map((incomplete: any) => `
+        <div class="violation-item">
+          <strong>${incomplete.id}</strong> - ${incomplete.description}<br>
+          <small>Requires manual review</small>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+    <div class="section">
+      <h3>📊 Raw JSON Report</h3>
+      <div class="code">${JSON.stringify(scanResults, null, 2)}</div>
+    </div>
+    <div class="section">
+      <h3>📄 Original HTML</h3>
+      <div class="code">${originalHtml.substring(0, 500)}${originalHtml.length > 500 ? '...' : ''}</div>
+    </div>
+    <footer style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280;">
+      <p>Generated by AccessTime Email Accessibility Scanner</p>
+    </footer>
+  </body>
+  </html>
+    `;
   const transporter = nodemailer.createTransport({
-    host: 'localhost',
-    port: 1025,
-    secure: false,
-    ignoreTLS: true,
+    host: process.env.MAILHOG_HOST,
+    port: Number(process.env.MAILHOG_SMTP_PORT),
+    secure: process.env.SMTP_SECURE === 'true',
+    ignoreTLS: process.env.SMTP_IGNORE_TLS === 'true',
   });
   const mailOptions = {
-    from: 'scanner@access-time.local',
-    to: 'report@access-time.local',
+    from: process.env.DEFAULT_FROM_EMAIL,
+    to: process.env.DEFAULT_TO_EMAIL,
     subject: `Accessibility Scan Report - ${violationsCount} Issues Found`,
     html: htmlReport,
     text: `Accessibility Scan Report
-Generated: ${timestamp}
-Violations: ${violationsCount}
-Passes: ${passesCount}
-Incomplete: ${incompleteCount}
-Inapplicable: ${inapplicableCount}
-${violationsCount > 0 ? `
-ISSUES FOUND:
-${scanResults.violations.map((v: any) => `- ${v.id}: ${v.description}`).join('\n')}
-` : 'No accessibility violations found!'}
-Raw JSON: ${JSON.stringify(scanResults, null, 2)}
-`
+    Generated: ${timestamp}
+    Violations: ${violationsCount}
+    Passes: ${passesCount}
+    Incomplete: ${incompleteCount}
+    Inapplicable: ${inapplicableCount}
+    ${violationsCount > 0 ? `
+    ISSUES FOUND:
+    ${scanResults.violations.map((v: any) => `- ${v.id}: ${v.description}`).join('\n')}
+    ` : 'No accessibility violations found!'}
+    Raw JSON: ${JSON.stringify(scanResults, null, 2)}
+    `
   };
+
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log('Report sent to MailHog successfully:', info.messageId);
   } catch (error) {
-    console.error('Error sending report to MailHog:', error);
     throw new Error(`Failed to send report to MailHog: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
+
 export async function POST(request: NextRequest) {
   try {
     const { html, sendEmail = false } = await request.json();
@@ -435,12 +436,10 @@ export async function POST(request: NextRequest) {
       try {
         await sendReportToMailHog(results, html);
       } catch (emailError) {
-        console.error('Failed to send report to MailHog:', emailError);
       }
     }
     return NextResponse.json(results);
   } catch (error) {
-    console.error('Scan error:', error);
     return NextResponse.json({ error: `Failed to scan HTML: ${error instanceof Error ? error.message : 'Unknown error'}` }, { status: 500 });
   }
 }
