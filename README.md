@@ -2,6 +2,10 @@
 
 A comprehensive email accessibility testing tool that automatically scans HTML email content for accessibility issues using Playwright and axe-core.
 
+## 📺 Demo Application
+
+[![Demo Aplikasi](https://github.com/user-attachments/assets/f781c41f-0b03-4891-b0c8-39555d18cca5)](https://youtu.be/nunkJdQTVKo)  
+
 ## 🚀 Features
 
 - **Modern React/Next.js Frontend** with intuitive UI for email testing
