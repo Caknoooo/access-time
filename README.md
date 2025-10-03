@@ -4,7 +4,9 @@ A comprehensive email accessibility testing tool that automatically scans HTML e
 
 ## 📺 Demo Application
 
-[![Demo Aplikasi](https://github.com/user-attachments/assets/f781c41f-0b03-4891-b0c8-39555d18cca5)](https://youtu.be/nunkJdQTVKo)  
+[![Watch the demo](https://img.youtube.com/vi/nunkJdQTVKo/maxresdefault.jpg)](https://youtu.be/nunkJdQTVKo)
+
+*Click the image above to watch the demo video*  
 
 ## 🚀 Features
 
