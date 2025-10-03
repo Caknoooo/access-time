@@ -1,16 +1,15 @@
 # Email Accessibility Scanner POC
 
-Proof of Concept aplikasi web untuk scan aksesibilitas email HTML secara otomatis menggunakan Playwright + axe-core.
+Proof of concept untuk memindai aksesibilitas email HTML menggunakan Playwright dan axe-core.
 
-## Overview
+## Fitur
 
-Aplikasi ini mendeteksi email HTML yang masuk ke alamat test khusus, menjalankan scan aksesibilitas menggunakan axe-core, dan menampilkan hasil JSON secara real-time di browser.
-
-## Prerequisites
-
-- Node.js 18+
-- pnpm (atau npm/yarn)
-- MailHog untuk testing email
+- **Frontend React/Next.js** yang menampilkan alamat email test
+- **Processing indicator** saat menunggu hasil scan
+- **Backend API** yang mendengarkan email masuk via MailHog
+- **Automatic scanning** menggunakan Playwright + axe-core
+- **Real-time updates** menggunakan Server-Sent Events (SSE)
+- **Raw JSON output** hasil scan aksesibilitas
 
 ## Setup
 
@@ -20,77 +19,55 @@ Aplikasi ini mendeteksi email HTML yang masuk ke alamat test khusus, menjalankan
 pnpm install
 ```
 
-### 2. Install Playwright Browsers
+### 2. Setup MailHog
+
+Jalankan MailHog menggunakan Docker:
 
 ```bash
-npx playwright install
-```
-
-### 3. Setup dengan Docker (Recommended)
-
-#### Option A: Docker Compose (Full Stack)
-```bash
-# Jalankan semua services (MailHog + App)
 docker-compose up -d
-
-# Lihat logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
 ```
 
-#### Option B: MailHog Only
-```bash
-docker run -d -p 1025:1025 -p 8025:8025 mailhog/mailhog
-```
+MailHog akan berjalan di:
+- SMTP Server: `localhost:1025`
+- Web UI: `http://localhost:8025`
 
-#### Option C: Binary Download
-```bash
-# macOS
-brew install mailhog
+### 3. Environment Variables
 
-# Linux
-wget https://github.com/mailhog/MailHog/releases/download/v1.0.1/MailHog_linux_amd64
-chmod +x MailHog_linux_amd64
-./MailHog_linux_amd64
-```
-
-### 4. Environment Variables
-
-#### Untuk Docker Compose
-Environment variables sudah di-set di `docker-compose.yml`, tidak perlu file `.env.local`.
-
-#### Untuk Development Manual
 Buat file `.env.local`:
 
 ```env
 TEST_EMAIL=test@local.test
 MAILHOG_API_URL=http://localhost:8025/api/v2
+MAILHOG_SMTP_HOST=localhost
+MAILHOG_SMTP_PORT=1025
 NEXT_PUBLIC_TEST_EMAIL=test@local.test
 ```
 
-### 5. Run Application
+### 4. Install Playwright Browsers
 
-#### Dengan Docker Compose
 ```bash
-docker-compose up -d
+npx playwright install
 ```
 
-#### Manual Development
+### 5. Run Development Server
+
 ```bash
 pnpm dev
 ```
 
-Buka [http://localhost:3000](http://localhost:3000) di browser.
+Aplikasi akan berjalan di `http://localhost:3000`
 
-## Usage
+## Cara Penggunaan
 
-1. **Start Listening**: Klik tombol "Start Listening" di UI
-2. **Send Test Email**: Kirim email HTML ke `test@local.test` menggunakan MailHog SMTP (port 1025)
-3. **View Results**: Hasil scan aksesibilitas akan muncul secara otomatis dalam format JSON
+1. Buka aplikasi di browser
+2. Kirim email HTML ke alamat yang ditampilkan (`test@local.test`)
+3. Aplikasi akan otomatis mendeteksi email baru
+4. Processing indicator akan muncul saat scanning
+5. Hasil scan aksesibilitas akan ditampilkan sebagai JSON
 
-### Contoh Email HTML untuk Testing
+## Contoh Email HTML
+
+Kirim email dengan konten HTML seperti ini:
 
 ```html
 <!DOCTYPE html>
@@ -100,118 +77,69 @@ Buka [http://localhost:3000](http://localhost:3000) di browser.
 </head>
 <body>
     <h1>Welcome</h1>
-    <img src="image.jpg" alt="Test image">
     <p>This is a test email for accessibility scanning.</p>
+    <img src="test.jpg" alt="Test image">
     <a href="https://example.com">Visit our website</a>
 </body>
 </html>
 ```
 
-### Mengirim Email via MailHog
-
-#### Menggunakan SMTP Client
-- SMTP Host: `localhost`
-- SMTP Port: `1025`
-- To: `test@local.test`
-- Subject: `Test Accessibility Scan`
-
-#### Menggunakan MailHog Web UI
-1. Buka [http://localhost:8025](http://localhost:8025)
-2. Klik "New Message"
-3. To: `test@local.test`
-4. Paste HTML content di body
-5. Send
-
 ## API Endpoints
 
-### GET /api/scan
-Server-Sent Events endpoint untuk real-time scan results.
+- `GET /api/emails` - Cek email baru dari MailHog
+- `POST /api/scan` - Scan HTML menggunakan Playwright + axe-core
+- `GET /api/stream` - SSE endpoint untuk real-time updates
 
-### GET /api/status
-Check status koneksi ke MailHog dan info email terbaru.
+## Struktur Project
 
-## Output Format
-
-Hasil scan mengembalikan JSON dengan struktur:
-
-```json
-{
-  "timestamp": "2024-01-01T12:00:00.000Z",
-  "violations": [
-    {
-      "id": "color-contrast",
-      "impact": "serious",
-      "description": "Ensures the contrast between foreground and background colors meets WCAG 2 AA contrast ratio thresholds",
-      "nodes": [...]
-    }
-  ],
-  "summary": {
-    "totalViolations": 1,
-    "critical": 0,
-    "serious": 1,
-    "moderate": 0,
-    "minor": 0
-  }
-}
+```
+src/
+├── app/
+│   ├── api/
+│   │   ├── emails/route.ts    # Email detection
+│   │   ├── scan/route.ts      # Accessibility scanning
+│   │   └── stream/route.ts    # SSE streaming
+│   ├── layout.tsx
+│   ├── page.tsx               # Main UI
+│   └── globals.css
+├── docker-compose.yml         # MailHog setup
+└── README.md
 ```
 
 ## Troubleshooting
 
-### MailHog Connection Error
-- Pastikan MailHog berjalan di port 8025
-- Check environment variable `MAILHOG_API_URL`
-
-### Playwright Error
-- Jalankan `npx playwright install` untuk install browser
-- Pastikan Playwright dependencies terinstall
-
-### No Email Detected
-- Pastikan email dikirim ke alamat yang benar (`test@local.test`)
-- Check MailHog web UI untuk memastikan email diterima
-- Restart listening jika perlu
-
-## Docker Services
-
-### MailHog Service
-- **Image**: `mailhog/mailhog:latest`
-- **SMTP Port**: 1025
-- **Web UI Port**: 8025
-- **Storage**: Persistent volume untuk email data
-
-### App Service
-- **Base Image**: `node:18-alpine`
-- **Port**: 3000
-- **Features**: 
-  - Pre-installed Chromium untuk Playwright
-  - Optimized untuk production build
-  - Volume mounting untuk development
-
-## Architecture
-
-```
-Frontend (React/Next.js)
-    ↓ SSE
-Backend API (/api/scan)
-    ↓ Polling
-MailHog API
-    ↓ HTML Extraction
-Playwright + axe-core
-    ↓ Results
-JSON Output
+### MailHog tidak berjalan
+```bash
+docker-compose down
+docker-compose up -d
 ```
 
-## Success Criteria
+### Playwright browser error
+```bash
+npx playwright install --force
+```
 
-✅ User dapat mengirim email HTML ke alamat test  
-✅ UI menampilkan processing indicator  
-✅ Backend otomatis mendeteksi email baru  
-✅ Accessibility scan berjalan menggunakan axe-core  
-✅ Hasil JSON ditampilkan di browser secara real-time  
+### Port sudah digunakan
+Ubah port di `docker-compose.yml` atau hentikan service yang menggunakan port 1025/8025.
 
-## Limitations (POC Scope)
+## Sample Output
 
-- Basic error handling
-- Single email processing at a time
-- No email content validation
-- No persistent storage
-- Limited to local MailHog setup
+Hasil scan akan menampilkan JSON seperti:
+
+```json
+{
+  "violations": [
+    {
+      "id": "color-contrast",
+      "impact": "serious",
+      "tags": ["cat.color", "wcag2aa", "wcag143"],
+      "description": "Ensures the contrast between foreground and background colors meets WCAG 2 AA contrast ratio thresholds",
+      "help": "Elements must have sufficient color contrast",
+      "nodes": [...]
+    }
+  ],
+  "passes": [...],
+  "incomplete": [...],
+  "inapplicable": [...]
+}
+```

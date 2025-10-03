@@ -1,120 +1,445 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { chromium } from 'playwright';
-import { AxeBuilder } from '@axe-core/playwright';
-import axios from 'axios';
+import nodemailer from 'nodemailer';
 
-const MAILHOG_API_URL = process.env.MAILHOG_API_URL || 'http://localhost:8025/api/v2';
-const TEST_EMAIL = process.env.TEST_EMAIL || 'test@local.test';
-
-let lastMessageId: string | null = null;
-let isProcessing = false;
-
-export async function GET(request: NextRequest) {
-  const encoder = new TextEncoder();
-  
-  const stream = new ReadableStream({
-    start(controller) {
-      const sendEvent = (data: { status: string; data?: unknown; error?: string }) => {
-        const event = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(encoder.encode(event));
-      };
-
-      const pollForEmails = async () => {
-        try {
-          const response = await axios.get(`${MAILHOG_API_URL}/messages`);
-          const messages = response.data.items || [];
-          
-          if (messages.length > 0) {
-            const latestMessage = messages[0];
-            
-            if (latestMessage.ID !== lastMessageId && !isProcessing) {
-              lastMessageId = latestMessage.ID;
-              isProcessing = true;
-              
-              sendEvent({ status: 'processing' });
-              
-              try {
-                const messageDetail = await axios.get(`${MAILHOG_API_URL}/messages/${latestMessage.ID}`);
-                const email = messageDetail.data;
-                
-                if (email.To && email.To.some((to: { Mailbox: string; Domain: string }) => to.Mailbox === TEST_EMAIL.split('@')[0] && to.Domain === TEST_EMAIL.split('@')[1])) {
-                  const htmlContent = email.Content?.Body || '';
-                  
-                  if (htmlContent) {
-                    const accessibilityResults = await runAccessibilityScan(htmlContent);
-                    sendEvent({ 
-                      status: 'completed', 
-                      data: accessibilityResults 
-                    });
-                  } else {
-                    sendEvent({ 
-                      status: 'error', 
-                      error: 'No HTML content found in email' 
-                    });
-                  }
-                } else {
-                  sendEvent({ 
-                    status: 'error', 
-                    error: 'Email not addressed to test email' 
-                  });
-                }
-              } catch (error) {
-                sendEvent({ 
-                  status: 'error', 
-                  error: `Failed to process email: ${error}` 
-                });
-              } finally {
-                isProcessing = false;
-              }
-            }
-          }
-        } catch (error) {
-          sendEvent({ 
-            status: 'error', 
-            error: `Failed to poll emails: ${error}` 
-          });
-        }
-      };
-
-      const interval = setInterval(pollForEmails, 2000);
-      
-      request.signal.addEventListener('abort', () => {
-        clearInterval(interval);
-        controller.close();
-      });
-    }
+async function sendReportToMailHog(scanResults: any, originalHtml: string) {
+  const timestamp = new Date().toISOString();
+  const violationsCount = scanResults.violations?.length || 0;
+  const passesCount = scanResults.passes?.length || 0;
+  const incompleteCount = scanResults.incomplete?.length || 0;
+  const inapplicableCount = scanResults.inapplicable?.length || 0;
+  const htmlReport = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Accessibility Scan Report</title>
+    <style>
+      body { 
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
+        line-height: 1.6; 
+        color: #333; 
+        max-width: 800px; 
+        margin: 0 auto; 
+        padding: 20px; 
+      }
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-bottom: 30px;
+      }
+      .stat-card {
+        padding: 15px;
+        border-radius: 8px;
+        text-align: center;
+        color: white;
+        font-weight: bold;
+      }
+      .violations { background: #ef4444; }
+      .passes { background: #10b981; }
+      .incomplete { background: #f59e0b; }
+      .inapplicable { background: #6b7280; }
+      .violation-item {
+        background: #fee2e2;
+        border-left: 4px solid #ef4444;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+      }
+      .pass-item {
+        background: #d1fae5;
+        border-left: 4px solid #10b981;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+      }
+      .code {
+        background: #f3f4f6;
+        padding: 10px;
+        border-radius: 4px;
+        font-family: Monaco, monospace;
+        font-size: 12px;
+        margin: 10px 0;
+        overflow-x: auto;
+      }
+      .section {
+        margin-bottom: 30px;
+      }
+      h3 { color: #374151; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px; }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>🔍 Accessibility Scan Report</h1>
+      <p>Generated on ${timestamp}</p>
+    </div>
+    <div class="summary">
+      <div class="stat-card violations">
+        <div style="font-size: 24px;">${violationsCount}</div>
+        <div>Violations</div>
+      </div>
+      <div class="stat-card passes">
+        <div style="font-size: 24px;">${passesCount}</div>
+        <div>Passes</div>
+      </div>
+      <div class="stat-card incomplete">
+        <div style="font-size: 24px;">${incompleteCount}</div>
+        <div>Incomplete</div>
+      </div>
+      <div class="stat-card inapplicable">
+        <div style="font-size: 24px;">${inapplicableCount}</div>
+        <div>Inapplicable</div>
+      </div>
+    </div>
+    ${violationsCount > 0 ? `
+    <div class="section">
+      <h3>🚨 Accessibility Violations</h3>
+      ${scanResults.violations.map((violation: any, index: number) => `
+        <div class="violation-item">
+          <strong>${violation.id}</strong> - ${violation.description}<br>
+          <small>Impact: ${violation.impact}</small>
+          ${violation.nodes ? violation.nodes.filter((node: any) => node.failureSummary).map((node: any) => `
+            <div class="code">${node.failureSummary}</div>
+          `).join('') : ''}
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+    ${passesCount > 0 ? `
+    <div class="section">
+      <h3>✅ Passed Tests</h3>
+      ${scanResults.passes.map((pass: any, index: number) => `
+        <div class="pass-item">
+          <strong>${pass.id}</strong> - ${pass.description}<br>
+          <small>T ${pass.nodes ? pass.nodes.map((node: any) => node.target?.join(', ') || 'N/A').join(', ') : 'N/A'}</small>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+    ${incompleteCount > 0 ? `
+    <div class="section">
+      <h3>⚠️ Incomplete Tests</h3>
+      ${scanResults.incomplete.map((incomplete: any) => `
+        <div class="violation-item">
+          <strong>${incomplete.id}</strong> - ${incomplete.description}<br>
+          <small>Requires manual review</small>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+    <div class="section">
+      <h3>📊 Raw JSON Report</h3>
+      <div class="code">${JSON.stringify(scanResults, null, 2)}</div>
+    </div>
+    <div class="section">
+      <h3>📄 Original HTML</h3>
+      <div class="code">${originalHtml.substring(0, 500)}${originalHtml.length > 500 ? '...' : ''}</div>
+    </div>
+    <footer style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280;">
+      <p>Generated by AccessTime Email Accessibility Scanner</p>
+    </footer>
+  </body>
+  </html>
+    `;
+  const transporter = nodemailer.createTransport({
+    host: process.env.MAILHOG_HOST,
+    port: Number(process.env.MAILHOG_SMTP_PORT),
+    secure: process.env.SMTP_SECURE === 'true',
+    ignoreTLS: process.env.SMTP_IGNORE_TLS === 'true',
   });
+  const mailOptions = {
+    from: process.env.DEFAULT_FROM_EMAIL,
+    to: process.env.DEFAULT_TO_EMAIL,
+    subject: `Accessibility Scan Report - ${violationsCount} Issues Found`,
+    html: htmlReport,
+    text: `Accessibility Scan Report
+    Generated: ${timestamp}
+    Violations: ${violationsCount}
+    Passes: ${passesCount}
+    Incomplete: ${incompleteCount}
+    Inapplicable: ${inapplicableCount}
+    ${violationsCount > 0 ? `
+    ISSUES FOUND:
+    ${scanResults.violations.map((v: any) => `- ${v.id}: ${v.description}`).join('\n')}
+    ` : 'No accessibility violations found!'}
+    Raw JSON: ${JSON.stringify(scanResults, null, 2)}
+    `
+  };
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    },
-  });
+  try {
+    const info = await transporter.sendMail(mailOptions);
+  } catch (error) {
+    throw new Error(`Failed to send report to MailHog: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
-async function runAccessibilityScan(htmlContent: string) {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  
+export async function POST(request: NextRequest) {
   try {
-    await page.setContent(htmlContent);
-    const results = await new AxeBuilder({ page }).analyze();
-    const violations = results.violations;
-    
-    return {
-      timestamp: new Date().toISOString(),
-      violations,
-      summary: {
-        totalViolations: violations.length,
-        critical: violations.filter((v) => v.impact === 'critical').length,
-        serious: violations.filter((v) => v.impact === 'serious').length,
-        moderate: violations.filter((v) => v.impact === 'moderate').length,
-        minor: violations.filter((v) => v.impact === 'minor').length,
+    const { html, sendEmail = false } = await request.json();
+    if (!html) {
+      return NextResponse.json({ error: 'HTML content is required' }, { status: 400 });
+    }
+    const browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.setContent(html);
+    const results = await page.evaluate(() => {
+      const violations: any[] = [];
+      const passes: any[] = [];
+      const incomplete: any[] = [];
+      const inapplicable: any[] = [];
+      const images = document.querySelectorAll('img');
+      images.forEach((img, index) => {
+        if (!img.alt || img.alt.trim() === '') {
+          violations.push({
+            id: 'image-alt',
+            impact: 'critical',
+            tags: ['cat.text-alternatives', 'wcag2a', 'wcag111'],
+            description: 'Ensures images have alternate text',
+            help: 'Images must have alternate text',
+            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/image-alt',
+            nodes: [{
+              target: [`img[${index}]`],
+              html: img.outerHTML,
+              failureSummary: 'Image missing alt text'
+            }]
+          });
+        } else {
+          passes.push({
+            id: 'image-alt',
+            impact: null,
+            tags: ['cat.text-alternatives', 'wcag2a', 'wcag111'],
+            description: 'Ensures images have alternate text',
+            nodes: [{
+              target: [`img[${index}]`],
+              html: img.outerHTML
+            }]
+          });
+        }
+      });
+      const buttons = document.querySelectorAll('button');
+      buttons.forEach((button, index) => {
+        if (!button.textContent?.trim() && !button.getAttribute('aria-label') && !button.getAttribute('aria-labelledby')) {
+          violations.push({
+            id: 'button-name',
+            impact: 'critical',
+            tags: ['cat.name-role-value', 'wcag2a', 'wcag412'],
+            description: 'Ensures buttons have discernible text',
+            help: 'Buttons must have discernible text',
+            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/button-name',
+            nodes: [{
+              target: [`button[${index}]`],
+              html: button.outerHTML,
+              failureSummary: 'Button missing accessible name'
+            }]
+          });
+        } else {
+          passes.push({
+            id: 'button-name',
+            impact: null,
+            tags: ['cat.name-role-value', 'wcag2a', 'wcag412'],
+            description: 'Ensures buttons have discernible text',
+            nodes: [{
+              target: [`button[${index}]`],
+              html: button.outerHTML
+            }]
+          });
+        }
+      });
+      const inputs = document.querySelectorAll('input');
+      inputs.forEach((input, index) => {
+        if (input.type === 'hidden') {
+          inapplicable.push({
+            id: 'label',
+            impact: null,
+            tags: ['cat.forms', 'wcag2a', 'wcag412'],
+            description: 'Ensures every form element has a label',
+            nodes: [{
+              target: [`input[${index}]`],
+              html: input.outerHTML
+            }]
+          });
+          return;
+        }
+        if (!input.getAttribute('aria-label') && !input.getAttribute('aria-labelledby')) {
+          const label = document.querySelector(`label[for="${input.id}"]`);
+          if (!label) {
+            violations.push({
+              id: 'label',
+              impact: 'critical',
+              tags: ['cat.forms', 'wcag2a', 'wcag412'],
+              description: 'Ensures every form element has a label',
+              help: 'Form elements must have labels',
+              helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/label',
+              nodes: [{
+                target: [`input[${index}]`],
+                html: input.outerHTML,
+                failureSummary: 'Form input missing label'
+              }]
+            });
+          } else {
+            passes.push({
+              id: 'label',
+              impact: null,
+              tags: ['cat.forms', 'wcag2a', 'wcag412'],
+              description: 'Ensures every form element has a label',
+              nodes: [{
+                target: [`input[${index}]`],
+                html: input.outerHTML
+              }]
+            });
+          }
+        } else {
+          passes.push({
+            id: 'label',
+            impact: null,
+            tags: ['cat.forms', 'wcag2a', 'wcag412'],
+            description: 'Ensures every form element has a label',
+            nodes: [{
+              target: [`input[${index}]`],
+              html: input.outerHTML
+            }]
+          });
+        }
+      });
+      const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      let lastLevel = 0;
+      headings.forEach((heading, index) => {
+        const level = parseInt(heading.tagName.charAt(1));
+        if (level > lastLevel + 1 && lastLevel > 0) {
+          violations.push({
+            id: 'heading-order',
+            impact: 'moderate',
+            tags: ['cat.semantics', 'best-practice'],
+            description: 'Ensures headings have a correct hierarchy',
+            help: 'Heading levels should only increase by one',
+            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/heading-order',
+            nodes: [{
+              target: [`heading[${index}]`],
+              html: heading.outerHTML,
+              failureSummary: `Heading level ${level} skipped from level ${lastLevel}`
+            }]
+          });
+        } else {
+          passes.push({
+            id: 'heading-order',
+            impact: null,
+            tags: ['cat.semantics', 'best-practice'],
+            description: 'Ensures headings have a correct hierarchy',
+            nodes: [{
+              target: [`heading[${index}]`],
+              html: heading.outerHTML
+            }]
+          });
+        }
+        lastLevel = level;
+      });
+      const links = document.querySelectorAll('a[href]');
+      links.forEach((link, index) => {
+        const text = link.textContent?.trim();
+        if (!text || text === 'Click here' || text === 'Read more' || text === 'Download' || text === 'Learn more') {
+          violations.push({
+            id: 'link-name',
+            impact: 'serious',
+            tags: ['cat.name-role-value', 'wcag2a', 'wcag412'],
+            description: 'Ensures links have discernible text',
+            help: 'Links must have discernible text',
+            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/link-name',
+            nodes: [{
+              target: [`a[${index}]`],
+              html: link.outerHTML,
+              failureSummary: 'Link text is not descriptive'
+            }]
+          });
+        } else {
+          passes.push({
+            id: 'link-name',
+            impact: null,
+            tags: ['cat.name-role-value', 'wcag2a', 'wcag412'],
+            description: 'Ensures links have discernible text',
+            nodes: [{
+              target: [`a[${index}]`],
+              html: link.outerHTML
+            }]
+          });
+        }
+      });
+      const tables = document.querySelectorAll('table');
+      tables.forEach((table, index) => {
+        const headers = table.querySelectorAll('th');
+        if (headers.length === 0) {
+          violations.push({
+            id: 'th-has-data-cells',
+            impact: 'moderate',
+            tags: ['cat.tables', 'wcag2a', 'wcag131'],
+            description: 'Ensures that table headers are not empty',
+            help: 'Table headers must not be empty',
+            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/th-has-data-cells',
+            nodes: [{
+              target: [`table[${index}]`],
+              html: table.outerHTML,
+              failureSummary: 'Table missing headers'
+            }]
+          });
+        } else {
+          passes.push({
+            id: 'th-has-data-cells',
+            impact: null,
+            tags: ['cat.tables', 'wcag2a', 'wcag131'],
+            description: 'Ensures that table headers are not empty',
+            nodes: [{
+              target: [`table[${index}]`],
+              html: table.outerHTML
+            }]
+          });
+        }
+      });
+      if (document.querySelectorAll('video').length > 0) {
+        incomplete.push({
+          id: 'video-caption',
+          impact: 'moderate',
+          tags: ['cat.time-and-media', 'wcag2a', 'wcag121'],
+          description: 'Ensures video elements have captions',
+          nodes: [{
+            target: ['video'],
+            html: '<video>',
+            failureSummary: 'Video caption check requires manual review'
+          }]
+        });
       }
-    };
-  } finally {
+      if (document.querySelectorAll('canvas').length === 0) {
+        inapplicable.push({
+          id: 'canvas-replaced-text',
+          impact: null,
+          tags: ['cat.text-alternatives', 'wcag2a', 'wcag111'],
+          description: 'Ensures canvas elements have replaced text',
+          nodes: []
+        });
+      }
+      return {
+        violations,
+        passes,
+        incomplete,
+        inapplicable
+      };
+    });
     await browser.close();
+    if (sendEmail) {
+      try {
+        await sendReportToMailHog(results, html);
+      } catch (emailError) {
+      }
+    }
+    return NextResponse.json(results);
+  } catch (error) {
+    return NextResponse.json({ error: `Failed to scan HTML: ${error instanceof Error ? error.message : 'Unknown error'}` }, { status: 500 });
   }
 }
