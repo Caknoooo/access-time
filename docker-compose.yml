@@ -1,0 +1,25 @@
+services:
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: access-time-mailhog
+    ports:
+      - "1025:1025" # SMTP port
+      - "8025:8025" # Web UI port
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: access-time-app
+    ports:
+      - "3000:3000"
+    environment:
+      - TEST_EMAIL=test@local.test
+      - MAILHOG_API_URL=http://mailhog:8025/api/v2
+      - NEXT_PUBLIC_TEST_EMAIL=test@local.test
+    depends_on:
+      - mailhog
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    restart: unless-stopped

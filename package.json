@@ -11,7 +11,10 @@
   "dependencies": {
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.5.4"
+    "next": "15.5.4",
+    "playwright": "^1.48.0",
+    "@axe-core/playwright": "^4.10.0",
+    "axios": "^1.7.9"
   },
   "devDependencies": {
     "typescript": "^5",
