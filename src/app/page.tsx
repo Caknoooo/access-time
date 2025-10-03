@@ -87,7 +87,6 @@ export default function Home() {
       setStatus('processing');
       setError(null);
       
-      // Step 1: Send sample to MailHog as email
       const sendResponse = await fetch('/api/test-samples', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,11 +100,7 @@ export default function Home() {
       }
       
       console.log('Sample sent to MailHog, waiting for detection...');
-      
-      // Step 2: Wait a moment for email to be processed
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Step 3: Query emails endpoint to get the latest email
       const emailResponse = await fetch('/api/emails');
       const emailData = await emailResponse.json();
       
@@ -113,7 +108,6 @@ export default function Home() {
         throw new Error('Email not detected in MailHog');
       }
       
-      // Step 4: Scan the email content
       const scanResponse = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
