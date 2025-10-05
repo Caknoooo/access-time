@@ -1,180 +1,54 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { EmailSample, ScanResult, ScanStatus } from '@/types';
-import { EmailService } from '@/services/emailService';
-import { StatusIndicator } from '@/components/StatusIndicator';
 import { TestSamples } from '@/components/TestSamples';
 import { ScanResults } from '@/components/ScanResults';
 import { PreviewModal } from '@/components/PreviewModal';
 import { ErrorDisplay } from '@/components/ErrorDisplay';
 import { ProgressBar } from '@/components/ProgressBar';
+import { StatusIndicator } from '@/components/StatusIndicator';
+import { useEmailMonitoring } from '@/hooks/useEmailMonitoring';
+import { APP_CONFIG } from '@/utils/constants';
 
 const TEST_EMAIL = 'test@local.test';
 
 export default function Home() {
-  const [status, setStatus] = useState<ScanStatus>('waiting');
-  const [results, setResults] = useState<ScanResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [samples, setSamples] = useState<EmailSample[]>([]);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewContent, setPreviewContent] = useState<{sample: EmailSample, content: string} | null>(null);
-
-  useEffect(() => {
-    let lastEmailId: string | null = null;
-    let isProcessing = false;
-    let timeoutId: NodeJS.Timeout;
-    let isActive = true;
-    
-    const checkForEmails = async () => {
-      try {
-        if (!isActive || isProcessing) return;
-        
-        const emailData = await EmailService.checkForEmails();
-        
-        if (emailData.hasNewEmail && emailData.emailId !== lastEmailId) {
-          lastEmailId = emailData.emailId!;
-          isProcessing = true;
-          setStatus('processing');
-          setError(null);
-          
-          if (!emailData.htmlContent || emailData.htmlContent.trim().length === 0) {
-            setStatus('waiting');
-            isProcessing = false;
-            return;
-          }
-          
-          const scanResults = await EmailService.scanHtml(emailData.htmlContent);
-          setStatus('complete');
-          setResults(scanResults);
-          isProcessing = false;
-          return;
-        }
-        
-        if (!isProcessing && status !== 'complete') {
-          setStatus('waiting');
-        }
-      } catch (err) {
-        console.error('Error checking emails:', err);
-        setStatus('error');
-        setError('Failed to check emails');
-        isProcessing = false;
-      }
-    };
-    
-    const startPolling = () => {
-      if (!isActive) return;
-      
-      checkForEmails();
-      timeoutId = setTimeout(startPolling, 10000);
-    };
-    
-    startPolling();
-    
-    return () => {
-      isActive = false;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [status]);
-
-  useEffect(() => {
-    const loadSamples = async () => {
-      try {
-        const samplesData = await EmailService.loadSamples();
-        setSamples(samplesData);
-      } catch (err) {
-        console.error('Error loading samples:', err);
-      }
-    };
-    
-    loadSamples();
-  }, []);
-
-  const testSample = async (sample: EmailSample) => {
-    try {
-      setStatus('processing');
-      setError(null);
-      
-      const sendData = await EmailService.sendSample(sample.id);
-      
-      if (!sendData.sent) {
-        throw new Error('Failed to send sample to MailHog');
-      }
-      
-      console.log('Sample sent to MailHog, waiting for detection...');
-
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      let attempts = 0;
-      let emailData;
-      do {
-        emailData = await EmailService.checkForEmails();
-        attempts++;
-        if (!emailData.hasNewEmail && attempts < 3) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      } while (!emailData.hasNewEmail && attempts < 3);
-      
-      if (!emailData.hasNewEmail) {
-        throw new Error('Email not detected in MailHog after multiple attempts');
-      }
-      
-      if (!emailData.htmlContent || emailData.htmlContent.trim().length === 0) {
-        throw new Error('Email content is empty or invalid - please check MailHog for email content');
-      }
-      
-      const scanResults = await EmailService.scanHtml(emailData.htmlContent);
-      setStatus('complete');
-      setResults({ ...scanResults, sampleInfo: sample });
-    } catch (err) {
-      console.error('Error testing sample:', err);
-      setStatus('error');
-      setError(`Failed to test sample: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  };
-
-  const previewSample = async (sample: EmailSample) => {
-    try {
-      const data = await EmailService.getSampleContent(sample.id);
-      setPreviewContent({
-        sample,
-        content: data.htmlContent
-      });
-      setShowPreview(true);
-    } catch (err) {
-      console.error('Error loading preview:', err);
-    }
-  };
-
-  const resetScanner = () => {
-    setStatus('waiting');
-    setResults(null);
-    setError(null);
-  };
+  const {
+    status,
+    results,
+    error,
+    samples,
+    showPreview,
+    previewContent,
+    testSample,
+    previewSample,
+    resetScanner,
+    setShowPreview,
+  } = useEmailMonitoring();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-12">
+          {/* Header Section */}
+          <header className="text-center mb-12">
             <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
               Email Accessibility Scanner
             </h1>
             <p className="text-xl text-slate-300 max-w-2xl mx-auto">
               Automated accessibility testing for email HTML content using modern web standards
             </p>
-          </div>
+          </header>
 
-          <div className="space-y-8">
+          {/* Main Content */}
+          <main className="space-y-8">
             <TestSamples 
               samples={samples}
               onTestSample={testSample}
               onPreviewSample={previewSample}
             />
 
-            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+            {/* Control Panel */}
+            <section className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-white mb-3">
@@ -186,7 +60,7 @@ export default function Home() {
                     </code>
                     <button 
                       onClick={resetScanner}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors duration-200 shadow-lg hover:shadow-xl"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors duration-200 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
                     >
                       Reset Scanner
                     </button>
@@ -200,14 +74,14 @@ export default function Home() {
                   <StatusIndicator status={status} />
                 </div>
               </div>
-            </div>
+            </section>
 
             <ProgressBar status={status} />
 
             {error && <ErrorDisplay error={error} />}
 
             {results && <ScanResults results={results} />}
-          </div>
+          </main>
         </div>
       </div>
 

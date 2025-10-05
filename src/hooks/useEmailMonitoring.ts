@@ -1,0 +1,143 @@
+import { useState, useEffect, useCallback } from 'react';
+import { ScanStatus, ScanResult, EmailSample } from '@/types';
+import { EmailService, EmailEvent } from '@/services/emailService';
+import { logger } from '@/utils/logger';
+
+export interface UseEmailMonitoringReturn {
+  status: ScanStatus;
+  results: ScanResult | null;
+  error: string | null;
+  samples: EmailSample[];
+  showPreview: boolean;
+  previewContent: { sample: EmailSample; content: string } | null;
+  testSample: (sample: EmailSample) => Promise<void>;
+  previewSample: (sample: EmailSample) => Promise<void>;
+  resetScanner: () => void;
+  setShowPreview: (show: boolean) => void;
+}
+
+export function useEmailMonitoring(): UseEmailMonitoringReturn {
+  const [status, setStatus] = useState<ScanStatus>('waiting');
+  const [results, setResults] = useState<ScanResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [samples, setSamples] = useState<EmailSample[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewContent, setPreviewContent] = useState<{sample: EmailSample, content: string} | null>(null);
+
+  // Load samples on mount
+  useEffect(() => {
+    const loadSamples = async () => {
+      try {
+        const samplesData = await EmailService.loadSamples();
+        setSamples(samplesData);
+        logger.info('Samples loaded successfully', { count: samplesData.length });
+      } catch (err) {
+        logger.error('Error loading samples', { error: err instanceof Error ? err.message : 'Unknown error' });
+      }
+    };
+    
+    loadSamples();
+  }, []);
+
+  // Setup Server-Sent Events
+  useEffect(() => {
+    logger.info('Setting up email monitoring');
+    
+    // Connect to SSE
+    const eventSource = EmailService.connectToEvents();
+    
+    // Handle different event types
+    const handleEmailEvent = (event: EmailEvent) => {
+      switch (event.type) {
+        case 'email_received':
+          logger.info('Email received', { data: event.data });
+          setStatus('processing');
+          setError(null);
+          break;
+        case 'scan_complete':
+          logger.info('Scan complete', { data: event.data });
+          setStatus('complete');
+          setResults(event.data.results);
+          break;
+        case 'scan_error':
+          logger.error('Scan error', { data: event.data });
+          setStatus('error');
+          setError(event.data.error || 'Scan failed');
+          break;
+        case 'status_update':
+          logger.debug('Status update', { data: event.data });
+          if (event.data.status === 'listening') {
+            setStatus('waiting');
+          }
+          break;
+      }
+    };
+
+    EmailService.addEventListener('main', handleEmailEvent);
+
+    // Cleanup on unmount
+    return () => {
+      logger.info('Cleaning up email monitoring');
+      EmailService.removeEventListener('main');
+      EmailService.disconnect();
+    };
+  }, []);
+
+  const testSample = useCallback(async (sample: EmailSample) => {
+    try {
+      logger.info('Testing sample', { sampleId: sample.id, sampleName: sample.name });
+      setStatus('processing');
+      setError(null);
+      
+      const sendData = await EmailService.sendSample(sample.id);
+      
+      if (!sendData.sent) {
+        throw new Error('Failed to send sample to MailHog');
+      }
+      
+      logger.info('Sample sent to MailHog, waiting for detection');
+
+      // Wait for email detection and processing via SSE
+      // The actual scanning will be handled by the backend and reported via SSE
+      
+    } catch (err) {
+      logger.error('Error testing sample', { error: err instanceof Error ? err.message : 'Unknown error' });
+      setStatus('error');
+      setError(`Failed to test sample: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  }, []);
+
+  const previewSample = useCallback(async (sample: EmailSample) => {
+    try {
+      logger.info('Previewing sample', { sampleId: sample.id });
+      const data = await EmailService.getSampleContent(sample.id);
+      setPreviewContent({
+        sample,
+        content: data.htmlContent
+      });
+      setShowPreview(true);
+    } catch (err) {
+      logger.error('Error loading preview', { error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  }, []);
+
+  const resetScanner = useCallback(() => {
+    logger.info('Resetting scanner');
+    setStatus('waiting');
+    setResults(null);
+    setError(null);
+  }, []);
+
+  return {
+    status,
+    results,
+    error,
+    samples,
+    showPreview,
+    previewContent,
+    testSample,
+    previewSample,
+    resetScanner,
+    setShowPreview,
+  };
+}
