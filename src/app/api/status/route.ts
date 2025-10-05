@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const MAILHOG_API_URL = process.env.MAILHOG_API_URL || 'https://access-time-mailhog.bengcare.com/api/v2';
+const MAILHOG_API_URL = process.env.MAILHOG_API_URL || 'http://localhost:8025/api/v1';
 
 export async function GET() {
   try {

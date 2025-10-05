@@ -1,11 +1,11 @@
 // Constants for the application
 export const APP_CONFIG = {
   API_BASE_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
-  POLLING_INTERVAL: 5000, // 5 seconds
-  MAX_HTML_SIZE: 1024 * 1024, // 1MB
-  SCAN_TIMEOUT: 30000, // 30 seconds
+  POLLING_INTERVAL: 5000,
+  MAX_HTML_SIZE: 1024 * 1024,
+  SCAN_TIMEOUT: 30000,
   MAX_RETRY_ATTEMPTS: 3,
-  RETRY_DELAY: 2000, // 2 seconds
+  RETRY_DELAY: 2000,
 } as const;
 
 export const STATUS_CONFIG = {

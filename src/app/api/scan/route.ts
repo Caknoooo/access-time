@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { chromium } from 'playwright';
 import axios from 'axios';
 
-const MAILHOG_API_URL = process.env.MAILHOG_API_URL || 'https://access-time-mailhog.bengcare.com/api/v2';
+const MAILHOG_API_URL = process.env.MAILHOG_API_URL || 'http://localhost:8025/api/v2';
 const TEST_EMAIL = process.env.TEST_EMAIL || 'test@local.test';
 
 let lastMessageId: string | null = null;
