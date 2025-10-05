@@ -2,11 +2,10 @@ import { EmailData, ScanResult, EmailSample, SampleResponse, SendResponse } from
 import { APP_CONFIG, ERROR_MESSAGES } from '@/utils/constants';
 import { logger } from '@/utils/logger';
 import { apiClient } from '@/utils/apiClient';
-import { retry } from '@/utils/errors';
 
 export interface EmailEvent {
   type: 'email_received' | 'scan_complete' | 'scan_error' | 'status_update';
-  data: any;
+  data: unknown;
   timestamp: string;
 }
 

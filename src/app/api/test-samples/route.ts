@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import nodemailer from 'nodemailer';
 
-async function sendSampleToMailHog(sample: any, htmlContent: string) {
+async function sendSampleToMailHog(sample: { name: string; description: string; features: string[] }, htmlContent: string) {
   const timestamp = new Date().toISOString();
 
   const transporter = nodemailer.createTransport({
@@ -22,19 +22,18 @@ async function sendSampleToMailHog(sample: any, htmlContent: string) {
   };
 
   try {
-    const info = await transporter.sendMail(mailOptions);
+    await transporter.sendMail(mailOptions);
   } catch (error) {
     throw new Error(`Failed to send sample to MailHog: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const samplesPath = path.join(process.cwd(), 'tests', 'email-samples');
     const indexPath = path.join(process.cwd(), 'tests', 'index.json');
     const indexData = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
     return NextResponse.json(indexData);
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Failed to read test samples' }, { status: 500 });
   }
 }
@@ -49,7 +48,7 @@ export async function POST(request: NextRequest) {
     const samplesPath = path.join(process.cwd(), 'tests', 'email-samples');
     const indexPath = path.join(process.cwd(), 'tests', 'index.json');
     const indexData = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
-    const sample = indexData.emailSamples.find((s: any) => s.id === sampleId);
+    const sample = indexData.emailSamples.find((s: { id: string }) => s.id === sampleId);
     if (!sample) {
       return NextResponse.json({ error: 'Sample not found' }, { status: 404 });
     }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const MAILHOG_API_URL = `http://${process.env.MAILHOG_HOST}:${process.env.MAILHOG_WEB_PORT}/api/v2`;
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const response = await fetch(`${MAILHOG_API_URL}/messages`);
     
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     
     let htmlContent = '';
     if (latestEmail.MIME && latestEmail.MIME.Parts) {
-      const htmlPart = latestEmail.MIME.Parts.find((part: any) => 
+      const htmlPart = latestEmail.MIME.Parts.find((part: { Headers?: { 'Content-Type'?: string[] }; Body?: string }) => 
         part.Headers && part.Headers['Content-Type'] && 
         part.Headers['Content-Type'][0].includes('text/html')
       );

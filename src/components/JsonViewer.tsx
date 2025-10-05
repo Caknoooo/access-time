@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 interface JsonViewerProps {
-  data: any;
+  data: unknown;
   title?: string;
 }
 
@@ -31,7 +31,7 @@ export function JsonViewer({ data, title = "JSON Data" }: JsonViewerProps) {
       
       {!isExpanded && (
         <div className="mt-2 text-xs text-gray-500 text-center">
-          Click "Expand" to see full JSON data
+          Click &quot;Expand&quot; to see full JSON data
         </div>
       )}
     </div>
