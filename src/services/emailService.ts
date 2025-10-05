@@ -12,7 +12,6 @@ class EmailService {
   }
 
   static async scanHtml(html: string, sendEmail = false): Promise<ScanResult> {
-    // Validate HTML content before sending
     if (!html || html.trim().length === 0) {
       throw new Error('HTML content cannot be empty');
     }

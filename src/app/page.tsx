@@ -38,7 +38,13 @@ export default function Home() {
           setStatus('processing');
           setError(null);
           
-          const scanResults = await EmailService.scanHtml(emailData.htmlContent!);
+          if (!emailData.htmlContent || emailData.htmlContent.trim().length === 0) {
+            setStatus('waiting');
+            isProcessing = false;
+            return;
+          }
+          
+          const scanResults = await EmailService.scanHtml(emailData.htmlContent);
           setStatus('complete');
           setResults(scanResults);
           isProcessing = false;
@@ -60,7 +66,7 @@ export default function Home() {
       if (!isActive) return;
       
       checkForEmails();
-      timeoutId = setTimeout(startPolling, 10000); // Increased to 10 seconds
+      timeoutId = setTimeout(startPolling, 10000);
     };
     
     startPolling();
@@ -71,7 +77,7 @@ export default function Home() {
         clearTimeout(timeoutId);
       }
     };
-  }, [status]); // Keep status dependency but with better control
+  }, [status]);
 
   useEffect(() => {
     const loadSamples = async () => {
@@ -98,10 +104,9 @@ export default function Home() {
       }
       
       console.log('Sample sent to MailHog, waiting for detection...');
-      // Wait for email to be processed
+
       await new Promise(resolve => setTimeout(resolve, 3000));
       
-      // Check for email with simple retry mechanism
       let attempts = 0;
       let emailData;
       do {
@@ -116,7 +121,11 @@ export default function Home() {
         throw new Error('Email not detected in MailHog after multiple attempts');
       }
       
-      const scanResults = await EmailService.scanHtml(emailData.htmlContent!);
+      if (!emailData.htmlContent || emailData.htmlContent.trim().length === 0) {
+        throw new Error('Email content is empty or invalid - please check MailHog for email content');
+      }
+      
+      const scanResults = await EmailService.scanHtml(emailData.htmlContent);
       setStatus('complete');
       setResults({ ...scanResults, sampleInfo: sample });
     } catch (err) {
@@ -149,7 +158,6 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-6xl mx-auto">
-          {/* Header */}
           <div className="text-center mb-12">
             <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
               Email Accessibility Scanner
@@ -159,7 +167,6 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Main Content */}
           <div className="space-y-8">
             <TestSamples 
               samples={samples}
@@ -167,7 +174,6 @@ export default function Home() {
               onPreviewSample={previewSample}
             />
 
-            {/* Scanner Status */}
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
