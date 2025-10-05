@@ -17,7 +17,7 @@ class Logger {
     return level <= this.level;
   }
 
-  private formatMessage(level: string, message: string, data?: any): string {
+  private formatMessage(level: string, message: string, data?: unknown): string {
     const timestamp = new Date().toISOString();
     const baseMessage = `[${timestamp}] ${level}: ${message}`;
     
@@ -28,25 +28,25 @@ class Logger {
     return baseMessage;
   }
 
-  error(message: string, data?: any): void {
+  error(message: string, data?: unknown): void {
     if (this.shouldLog(LogLevel.ERROR)) {
       console.error(this.formatMessage('ERROR', message, data));
     }
   }
 
-  warn(message: string, data?: any): void {
+  warn(message: string, data?: unknown): void {
     if (this.shouldLog(LogLevel.WARN)) {
       console.warn(this.formatMessage('WARN', message, data));
     }
   }
 
-  info(message: string, data?: any): void {
+  info(message: string, data?: unknown): void {
     if (this.shouldLog(LogLevel.INFO)) {
       console.info(this.formatMessage('INFO', message, data));
     }
   }
 
-  debug(message: string, data?: any): void {
+  debug(message: string, data?: unknown): void {
     if (this.shouldLog(LogLevel.DEBUG)) {
       console.debug(this.formatMessage('DEBUG', message, data));
     }

@@ -57,16 +57,16 @@ export function useEmailMonitoring(): UseEmailMonitoringReturn {
         case 'scan_complete':
           logger.info('Scan complete', { data: event.data });
           setStatus('complete');
-          setResults(event.data.results);
+          setResults((event.data as { results: ScanResult }).results);
           break;
         case 'scan_error':
           logger.error('Scan error', { data: event.data });
           setStatus('error');
-          setError(event.data.error || 'Scan failed');
+          setError((event.data as { error?: string }).error || 'Scan failed');
           break;
         case 'status_update':
           logger.debug('Status update', { data: event.data });
-          if (event.data.status === 'listening') {
+          if ((event.data as { status?: string }).status === 'listening') {
             setStatus('waiting');
           }
           break;

@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const { html, sendEmail } = body;
+    const { html } = body;
 
     if (!html) {
       return Response.json({ error: 'HTML content is required' }, { status: 400 });
@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
   });
 }
 
-function generateHtmlReport(results: any) {
+function generateHtmlReport(results: { violations: unknown[]; summary: { totalViolations: number; critical: number; serious: number; moderate: number; minor: number }; timestamp: string }) {
   const { violations, summary, timestamp } = results;
   
   return `
@@ -322,19 +322,22 @@ function generateHtmlReport(results: any) {
             ${violations.length > 0 ? `
     <div class="section">
                 <h2>🚨 Accessibility Violations</h2>
-                ${violations.map((violation: any) => `
+                ${violations.map((violation: unknown) => {
+                  const v = violation as { impact: string; id: string; description: string; help: string };
+                  return `
                     <div class="violation">
                         <div class="violation-header">
-                            <span class="impact ${violation.impact}">${violation.impact}</span>
+                            <span class="impact ${v.impact}">${v.impact}</span>
                         </div>
-                        <div class="violation-title">${violation.id}</div>
-                        <div class="violation-description">${violation.description}</div>
+                        <div class="violation-title">${v.id}</div>
+                        <div class="violation-description">${v.description}</div>
                         <div class="help">
                             <h4>💡 How to fix:</h4>
-                            <p>${violation.help}</p>
+                            <p>${v.help}</p>
                         </div>
         </div>
-      `).join('')}
+      `;
+                }).join('')}
     </div>
             ` : `
     <div class="section">

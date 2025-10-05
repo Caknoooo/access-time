@@ -2,7 +2,7 @@ import { APP_CONFIG, ERROR_MESSAGES } from './constants';
 import { logger } from './logger';
 import { retry } from './errors';
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
   message?: string;
@@ -43,9 +43,10 @@ export class ApiClient {
       
       return { data };
     } catch (error) {
-      logger.error('API request failed', { url, error: error.message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('API request failed', { url, error: errorMessage });
       return {
-        error: error.message,
+        error: errorMessage,
         message: ERROR_MESSAGES.SCAN_FAILED,
         timestamp: new Date().toISOString(),
       };
@@ -56,14 +57,14 @@ export class ApiClient {
     return this.makeRequest<T>(endpoint, { method: 'GET' });
   }
 
-  async post<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+  async post<T>(endpoint: string, body: unknown): Promise<ApiResponse<T>> {
     return this.makeRequest<T>(endpoint, {
       method: 'POST',
       body: JSON.stringify(body),
     });
   }
 
-  async postWithRetry<T>(endpoint: string, body: any, maxAttempts: number = 3): Promise<ApiResponse<T>> {
+  async postWithRetry<T>(endpoint: string, body: unknown, maxAttempts: number = 3): Promise<ApiResponse<T>> {
     return retry(
       () => this.post<T>(endpoint, body),
       maxAttempts,
