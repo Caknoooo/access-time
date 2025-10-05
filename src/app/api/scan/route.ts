@@ -1,445 +1,439 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { chromium } from 'playwright';
-import nodemailer from 'nodemailer';
+import axios from 'axios';
 
-async function sendReportToMailHog(scanResults: any, originalHtml: string) {
-  const timestamp = new Date().toISOString();
-  const violationsCount = scanResults.violations?.length || 0;
-  const passesCount = scanResults.passes?.length || 0;
-  const incompleteCount = scanResults.incomplete?.length || 0;
-  const inapplicableCount = scanResults.inapplicable?.length || 0;
-  const htmlReport = `
+const MAILHOG_API_URL = process.env.MAILHOG_API_URL || 'http://localhost:8025/api/v2';
+const TEST_EMAIL = process.env.TEST_EMAIL || 'test@local.test';
+
+let lastMessageId: string | null = null;
+let isProcessing = false;
+
+export async function POST(request: NextRequest) {
+  try {
+    // Check if request has body
+    const contentType = request.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      return Response.json({ 
+        error: 'Content-Type must be application/json' 
+      }, { status: 400 });
+    }
+
+    // Try to parse JSON with better error handling
+    let body;
+    try {
+      body = await request.json();
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return Response.json({ 
+        error: 'Invalid JSON in request body',
+        details: parseError instanceof Error ? parseError.message : 'Unknown parse error'
+      }, { status: 400 });
+    }
+
+    const { html, sendEmail } = body;
+
+    if (!html) {
+      return Response.json({ error: 'HTML content is required' }, { status: 400 });
+    }
+
+    console.log('Starting accessibility scan...');
+    const accessibilityResults = await runAccessibilityScan(html);
+
+    return Response.json({
+      ...accessibilityResults,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error in scan API:', error);
+    return Response.json({
+      error: 'Failed to scan HTML content',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
+  }
+}
+
+export async function GET(request: NextRequest) {
+  console.log('SSE endpoint called at', new Date().toISOString());
+  const encoder = new TextEncoder();
+  
+  const stream = new ReadableStream({
+    start(controller) {
+      console.log('SSE stream started');
+      const sendEvent = (data: { status: string; data?: unknown; error?: string }) => {
+        console.log('Sending event:', data);
+        const event = `data: ${JSON.stringify(data)}\n\n`;
+        controller.enqueue(encoder.encode(event));
+      };
+
+      const pollForEmails = async () => {
+        try {
+          console.log('Polling for emails...');
+          const response = await axios.get(`${MAILHOG_API_URL}/messages`);
+          const messages = response.data || [];
+          console.log('Found messages:', messages.length);
+          
+          if (messages.length > 0) {
+            const latestMessage = messages[0];
+            
+            if (latestMessage.ID !== lastMessageId && !isProcessing) {
+              lastMessageId = latestMessage.ID;
+              isProcessing = true;
+              
+              sendEvent({ status: 'processing' });
+              
+              try {
+                const messageDetail = await axios.get(`${MAILHOG_API_URL}/messages/${latestMessage.ID}`);
+                const email = messageDetail.data;
+                
+                const toAddresses = email.To || [];
+                const isTestEmail = toAddresses.some((to: { Mailbox: string; Domain: string }) => 
+                  `${to.Mailbox}@${to.Domain}` === TEST_EMAIL
+                );
+                
+                if (isTestEmail) {
+                  const htmlContent = email.Content?.Body || '';
+                  
+                  if (htmlContent) {
+                    const accessibilityResults = await runAccessibilityScan(htmlContent);
+                    sendEvent({ 
+                      status: 'completed', 
+                      data: accessibilityResults 
+                    });
+                  } else {
+                    sendEvent({ 
+                      status: 'error', 
+                      error: 'No HTML content found in email' 
+                    });
+                  }
+                } else {
+                  sendEvent({ 
+                    status: 'error', 
+                    error: 'Email not addressed to test email' 
+                  });
+                }
+              } catch (error) {
+                sendEvent({ 
+                  status: 'error', 
+                  error: `Failed to process email: ${error}` 
+                });
+              } finally {
+                isProcessing = false;
+              }
+            }
+          }
+        } catch (error) {
+          sendEvent({ 
+            status: 'error', 
+            error: `Failed to poll emails: ${error}` 
+          });
+        }
+      };
+
+      const interval = setInterval(pollForEmails, 2000);
+      
+      request.signal.addEventListener('abort', () => {
+        clearInterval(interval);
+        controller.close();
+      });
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
+function generateHtmlReport(results: any) {
+  const { violations, summary, timestamp } = results;
+  
+  return `
   <!DOCTYPE html>
-  <html>
+<html lang="en">
   <head>
     <meta charset="UTF-8">
-    <title>Accessibility Scan Report</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Accessibility Report</title>
     <style>
       body { 
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         line-height: 1.6; 
-        color: #333; 
-        max-width: 800px; 
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
         margin: 0 auto; 
-        padding: 20px; 
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
       }
       .header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        padding: 20px;
-        border-radius: 8px;
+            padding: 30px;
         text-align: center;
-        margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        .content {
+            padding: 30px;
       }
       .summary {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
         margin-bottom: 30px;
       }
       .stat-card {
-        padding: 15px;
+            background: #f8f9fa;
+            padding: 20px;
         border-radius: 8px;
         text-align: center;
-        color: white;
+            border-left: 4px solid #667eea;
+        }
+        .stat-card.critical { border-left-color: #dc3545; }
+        .stat-card.serious { border-left-color: #fd7e14; }
+        .stat-card.moderate { border-left-color: #ffc107; }
+        .stat-card.minor { border-left-color: #28a745; }
+        .number {
+            font-size: 2rem;
         font-weight: bold;
-      }
-      .violations { background: #ef4444; }
-      .passes { background: #10b981; }
-      .incomplete { background: #f59e0b; }
-      .inapplicable { background: #6b7280; }
-      .violation-item {
-        background: #fee2e2;
-        border-left: 4px solid #ef4444;
-        padding: 15px;
-        margin-bottom: 10px;
-        border-radius: 4px;
-      }
-      .pass-item {
-        background: #d1fae5;
-        border-left: 4px solid #10b981;
-        padding: 15px;
-        margin-bottom: 10px;
-        border-radius: 4px;
-      }
-      .code {
-        background: #f3f4f6;
-        padding: 10px;
-        border-radius: 4px;
-        font-family: Monaco, monospace;
-        font-size: 12px;
-        margin: 10px 0;
-        overflow-x: auto;
+            margin-bottom: 5px;
+        }
+        .label {
+            color: #6c757d;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
       }
       .section {
         margin-bottom: 30px;
       }
-      h3 { color: #374151; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px; }
+        .section h2 {
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .violation {
+            background: #fff;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .violation-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .impact {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .impact.critical { background: #dc3545; color: white; }
+        .impact.serious { background: #fd7e14; color: white; }
+        .impact.moderate { background: #ffc107; color: #333; }
+        .impact.minor { background: #28a745; color: white; }
+        .violation-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .violation-description {
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+        .help {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #2196f3;
+        }
+        .help h4 {
+            margin: 0 0 10px 0;
+            color: #1976d2;
+        }
+        .help p {
+            margin: 0;
+            color: #1565c0;
+        }
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #6c757d;
+            border-top: 1px solid #e9ecef;
+        }
     </style>
   </head>
   <body>
+    <div class="container">
     <div class="header">
-      <h1>🔍 Accessibility Scan Report</h1>
-      <p>Generated on ${timestamp}</p>
+            <h1>📧 Email Accessibility Report</h1>
+            <p>Generated on ${new Date(timestamp).toLocaleString()}</p>
     </div>
+        
+        <div class="content">
     <div class="summary">
-      <div class="stat-card violations">
-        <div style="font-size: 24px;">${violationsCount}</div>
-        <div>Violations</div>
+                <div class="stat-card">
+                    <div class="number">${summary.totalViolations}</div>
+                    <div class="label">Total Issues</div>
+                </div>
+                <div class="stat-card critical">
+                    <div class="number">${summary.critical}</div>
+                    <div class="label">Critical</div>
       </div>
-      <div class="stat-card passes">
-        <div style="font-size: 24px;">${passesCount}</div>
-        <div>Passes</div>
+                <div class="stat-card serious">
+                    <div class="number">${summary.serious}</div>
+                    <div class="label">Serious</div>
       </div>
-      <div class="stat-card incomplete">
-        <div style="font-size: 24px;">${incompleteCount}</div>
-        <div>Incomplete</div>
+                <div class="stat-card moderate">
+                    <div class="number">${summary.moderate}</div>
+                    <div class="label">Moderate</div>
       </div>
-      <div class="stat-card inapplicable">
-        <div style="font-size: 24px;">${inapplicableCount}</div>
-        <div>Inapplicable</div>
+                <div class="stat-card minor">
+                    <div class="number">${summary.minor}</div>
+                    <div class="label">Minor</div>
       </div>
     </div>
-    ${violationsCount > 0 ? `
+            
+            ${violations.length > 0 ? `
     <div class="section">
-      <h3>🚨 Accessibility Violations</h3>
-      ${scanResults.violations.map((violation: any, index: number) => `
-        <div class="violation-item">
-          <strong>${violation.id}</strong> - ${violation.description}<br>
-          <small>Impact: ${violation.impact}</small>
-          ${violation.nodes ? violation.nodes.filter((node: any) => node.failureSummary).map((node: any) => `
-            <div class="code">${node.failureSummary}</div>
-          `).join('') : ''}
+                <h2>🚨 Accessibility Violations</h2>
+                ${violations.map((violation: any) => `
+                    <div class="violation">
+                        <div class="violation-header">
+                            <span class="impact ${violation.impact}">${violation.impact}</span>
+                        </div>
+                        <div class="violation-title">${violation.id}</div>
+                        <div class="violation-description">${violation.description}</div>
+                        <div class="help">
+                            <h4>💡 How to fix:</h4>
+                            <p>${violation.help}</p>
+                        </div>
         </div>
       `).join('')}
     </div>
-    ` : ''}
-    ${passesCount > 0 ? `
+            ` : `
     <div class="section">
-      <h3>✅ Passed Tests</h3>
-      ${scanResults.passes.map((pass: any, index: number) => `
-        <div class="pass-item">
-          <strong>${pass.id}</strong> - ${pass.description}<br>
-          <small>T ${pass.nodes ? pass.nodes.map((node: any) => node.target?.join(', ') || 'N/A').join(', ') : 'N/A'}</small>
+                <h2>✅ No Accessibility Issues Found</h2>
+                <p>Great! This email appears to be accessible and follows web accessibility guidelines.</p>
+            </div>
+            `}
         </div>
-      `).join('')}
-    </div>
-    ` : ''}
-    ${incompleteCount > 0 ? `
-    <div class="section">
-      <h3>⚠️ Incomplete Tests</h3>
-      ${scanResults.incomplete.map((incomplete: any) => `
-        <div class="violation-item">
-          <strong>${incomplete.id}</strong> - ${incomplete.description}<br>
-          <small>Requires manual review</small>
+        
+        <div class="footer">
+            <p>Report generated by Email Accessibility Scanner</p>
         </div>
-      `).join('')}
     </div>
-    ` : ''}
-    <div class="section">
-      <h3>📊 Raw JSON Report</h3>
-      <div class="code">${JSON.stringify(scanResults, null, 2)}</div>
-    </div>
-    <div class="section">
-      <h3>📄 Original HTML</h3>
-      <div class="code">${originalHtml.substring(0, 500)}${originalHtml.length > 500 ? '...' : ''}</div>
-    </div>
-    <footer style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280;">
-      <p>Generated by AccessTime Email Accessibility Scanner</p>
-    </footer>
   </body>
-  </html>
-    `;
-  const transporter = nodemailer.createTransport({
-    host: process.env.MAILHOG_HOST,
-    port: Number(process.env.MAILHOG_SMTP_PORT),
-    secure: process.env.SMTP_SECURE === 'true',
-    ignoreTLS: process.env.SMTP_IGNORE_TLS === 'true',
-  });
-  const mailOptions = {
-    from: process.env.DEFAULT_FROM_EMAIL,
-    to: process.env.DEFAULT_TO_EMAIL,
-    subject: `Accessibility Scan Report - ${violationsCount} Issues Found`,
-    html: htmlReport,
-    text: `Accessibility Scan Report
-    Generated: ${timestamp}
-    Violations: ${violationsCount}
-    Passes: ${passesCount}
-    Incomplete: ${incompleteCount}
-    Inapplicable: ${inapplicableCount}
-    ${violationsCount > 0 ? `
-    ISSUES FOUND:
-    ${scanResults.violations.map((v: any) => `- ${v.id}: ${v.description}`).join('\n')}
-    ` : 'No accessibility violations found!'}
-    Raw JSON: ${JSON.stringify(scanResults, null, 2)}
-    `
-  };
-
-  try {
-    const info = await transporter.sendMail(mailOptions);
-  } catch (error) {
-    throw new Error(`Failed to send report to MailHog: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+</html>`;
 }
 
-export async function POST(request: NextRequest) {
+async function runAccessibilityScan(htmlContent: string) {
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  const page = await browser.newPage();
+  
   try {
-    const { html, sendEmail = false } = await request.json();
-    if (!html) {
-      return NextResponse.json({ error: 'HTML content is required' }, { status: 400 });
-    }
-    const browser = await chromium.launch();
-    const page = await browser.newPage();
-    await page.setContent(html);
-    const results = await page.evaluate(() => {
-      const violations: any[] = [];
-      const passes: any[] = [];
-      const incomplete: any[] = [];
-      const inapplicable: any[] = [];
-      const images = document.querySelectorAll('img');
-      images.forEach((img, index) => {
-        if (!img.alt || img.alt.trim() === '') {
-          violations.push({
-            id: 'image-alt',
-            impact: 'critical',
-            tags: ['cat.text-alternatives', 'wcag2a', 'wcag111'],
-            description: 'Ensures images have alternate text',
-            help: 'Images must have alternate text',
-            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/image-alt',
-            nodes: [{
-              target: [`img[${index}]`],
-              html: img.outerHTML,
-              failureSummary: 'Image missing alt text'
-            }]
+    const fullHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Email Accessibility Scan</title>
+        <script src="https://unpkg.com/axe-core@4.10.0/axe.min.js"></script>
+    </head>
+    <body>
+        ${htmlContent}
+    </body>
+    </html>`;
+    
+    await page.setContent(fullHtml);
+    
+    const results = await page.evaluate(async () => {
+      return new Promise((resolve) => {
+        if (typeof window !== 'undefined' && (window as unknown as { axe?: unknown }).axe) {
+          const axe = (window as unknown as { axe: { run: (doc: Document, options: Record<string, unknown>, callback: (err: Error | null, results: unknown) => void) => void } }).axe;
+          axe.run(document, {}, (err: Error | null, results: unknown) => {
+            if (err) {
+              resolve({ violations: [], error: err.toString() });
+        } else {
+              resolve(results);
+            }
           });
         } else {
-          passes.push({
-            id: 'image-alt',
-            impact: null,
-            tags: ['cat.text-alternatives', 'wcag2a', 'wcag111'],
-            description: 'Ensures images have alternate text',
-            nodes: [{
-              target: [`img[${index}]`],
-              html: img.outerHTML
-            }]
-          });
+          resolve({ violations: [], error: 'axe-core not loaded' });
         }
       });
-      const buttons = document.querySelectorAll('button');
-      buttons.forEach((button, index) => {
-        if (!button.textContent?.trim() && !button.getAttribute('aria-label') && !button.getAttribute('aria-labelledby')) {
-          violations.push({
-            id: 'button-name',
-            impact: 'critical',
-            tags: ['cat.name-role-value', 'wcag2a', 'wcag412'],
-            description: 'Ensures buttons have discernible text',
-            help: 'Buttons must have discernible text',
-            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/button-name',
-            nodes: [{
-              target: [`button[${index}]`],
-              html: button.outerHTML,
-              failureSummary: 'Button missing accessible name'
-            }]
-          });
-        } else {
-          passes.push({
-            id: 'button-name',
-            impact: null,
-            tags: ['cat.name-role-value', 'wcag2a', 'wcag412'],
-            description: 'Ensures buttons have discernible text',
-            nodes: [{
-              target: [`button[${index}]`],
-              html: button.outerHTML
-            }]
-          });
-        }
-      });
-      const inputs = document.querySelectorAll('input');
-      inputs.forEach((input, index) => {
-        if (input.type === 'hidden') {
-          inapplicable.push({
-            id: 'label',
-            impact: null,
-            tags: ['cat.forms', 'wcag2a', 'wcag412'],
-            description: 'Ensures every form element has a label',
-            nodes: [{
-              target: [`input[${index}]`],
-              html: input.outerHTML
-            }]
-          });
-          return;
-        }
-        if (!input.getAttribute('aria-label') && !input.getAttribute('aria-labelledby')) {
-          const label = document.querySelector(`label[for="${input.id}"]`);
-          if (!label) {
-            violations.push({
-              id: 'label',
-              impact: 'critical',
-              tags: ['cat.forms', 'wcag2a', 'wcag412'],
-              description: 'Ensures every form element has a label',
-              help: 'Form elements must have labels',
-              helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/label',
-              nodes: [{
-                target: [`input[${index}]`],
-                html: input.outerHTML,
-                failureSummary: 'Form input missing label'
-              }]
-            });
-          } else {
-            passes.push({
-              id: 'label',
-              impact: null,
-              tags: ['cat.forms', 'wcag2a', 'wcag412'],
-              description: 'Ensures every form element has a label',
-              nodes: [{
-                target: [`input[${index}]`],
-                html: input.outerHTML
-              }]
-            });
-          }
-        } else {
-          passes.push({
-            id: 'label',
-            impact: null,
-            tags: ['cat.forms', 'wcag2a', 'wcag412'],
-            description: 'Ensures every form element has a label',
-            nodes: [{
-              target: [`input[${index}]`],
-              html: input.outerHTML
-            }]
-          });
-        }
-      });
-      const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
-      let lastLevel = 0;
-      headings.forEach((heading, index) => {
-        const level = parseInt(heading.tagName.charAt(1));
-        if (level > lastLevel + 1 && lastLevel > 0) {
-          violations.push({
-            id: 'heading-order',
-            impact: 'moderate',
-            tags: ['cat.semantics', 'best-practice'],
-            description: 'Ensures headings have a correct hierarchy',
-            help: 'Heading levels should only increase by one',
-            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/heading-order',
-            nodes: [{
-              target: [`heading[${index}]`],
-              html: heading.outerHTML,
-              failureSummary: `Heading level ${level} skipped from level ${lastLevel}`
-            }]
-          });
-        } else {
-          passes.push({
-            id: 'heading-order',
-            impact: null,
-            tags: ['cat.semantics', 'best-practice'],
-            description: 'Ensures headings have a correct hierarchy',
-            nodes: [{
-              target: [`heading[${index}]`],
-              html: heading.outerHTML
-            }]
-          });
-        }
-        lastLevel = level;
-      });
-      const links = document.querySelectorAll('a[href]');
-      links.forEach((link, index) => {
-        const text = link.textContent?.trim();
-        if (!text || text === 'Click here' || text === 'Read more' || text === 'Download' || text === 'Learn more') {
-          violations.push({
-            id: 'link-name',
-            impact: 'serious',
-            tags: ['cat.name-role-value', 'wcag2a', 'wcag412'],
-            description: 'Ensures links have discernible text',
-            help: 'Links must have discernible text',
-            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/link-name',
-            nodes: [{
-              target: [`a[${index}]`],
-              html: link.outerHTML,
-              failureSummary: 'Link text is not descriptive'
-            }]
-          });
-        } else {
-          passes.push({
-            id: 'link-name',
-            impact: null,
-            tags: ['cat.name-role-value', 'wcag2a', 'wcag412'],
-            description: 'Ensures links have discernible text',
-            nodes: [{
-              target: [`a[${index}]`],
-              html: link.outerHTML
-            }]
-          });
-        }
-      });
-      const tables = document.querySelectorAll('table');
-      tables.forEach((table, index) => {
-        const headers = table.querySelectorAll('th');
-        if (headers.length === 0) {
-          violations.push({
-            id: 'th-has-data-cells',
-            impact: 'moderate',
-            tags: ['cat.tables', 'wcag2a', 'wcag131'],
-            description: 'Ensures that table headers are not empty',
-            help: 'Table headers must not be empty',
-            helpUrl: 'https://dequeuniversity.com/rules/axe/4.0/th-has-data-cells',
-            nodes: [{
-              target: [`table[${index}]`],
-              html: table.outerHTML,
-              failureSummary: 'Table missing headers'
-            }]
-          });
-        } else {
-          passes.push({
-            id: 'th-has-data-cells',
-            impact: null,
-            tags: ['cat.tables', 'wcag2a', 'wcag131'],
-            description: 'Ensures that table headers are not empty',
-            nodes: [{
-              target: [`table[${index}]`],
-              html: table.outerHTML
-            }]
-          });
-        }
-      });
-      if (document.querySelectorAll('video').length > 0) {
-        incomplete.push({
-          id: 'video-caption',
-          impact: 'moderate',
-          tags: ['cat.time-and-media', 'wcag2a', 'wcag121'],
-          description: 'Ensures video elements have captions',
-          nodes: [{
-            target: ['video'],
-            html: '<video>',
-            failureSummary: 'Video caption check requires manual review'
-          }]
-        });
-      }
-      if (document.querySelectorAll('canvas').length === 0) {
-        inapplicable.push({
-          id: 'canvas-replaced-text',
-          impact: null,
-          tags: ['cat.text-alternatives', 'wcag2a', 'wcag111'],
-          description: 'Ensures canvas elements have replaced text',
-          nodes: []
-        });
-      }
+    });
+    
+    const violations = (results as { violations?: unknown[] }).violations || [];
+    
+    const passes = (results as { passes?: unknown[] }).passes || [];
+    const incomplete = (results as { incomplete?: unknown[] }).incomplete || [];
+    const inapplicable = (results as { inapplicable?: unknown[] }).inapplicable || [];
+
       return {
+      timestamp: new Date().toISOString(),
         violations,
         passes,
         incomplete,
-        inapplicable
-      };
-    });
-    await browser.close();
-    if (sendEmail) {
-      try {
-        await sendReportToMailHog(results, html);
-      } catch (emailError) {
+      inapplicable,
+      summary: {
+        totalViolations: violations.length,
+        critical: violations.filter((v: unknown) => (v as { impact?: string }).impact === 'critical').length,
+        serious: violations.filter((v: unknown) => (v as { impact?: string }).impact === 'serious').length,
+        moderate: violations.filter((v: unknown) => (v as { impact?: string }).impact === 'moderate').length,
+        minor: violations.filter((v: unknown) => (v as { impact?: string }).impact === 'minor').length,
+      },
+      url: 'email-content',
+      toolOptions: {
+        resultTypes: ['violations']
       }
-    }
-    return NextResponse.json(results);
+    };
   } catch (error) {
-    return NextResponse.json({ error: `Failed to scan HTML: ${error instanceof Error ? error.message : 'Unknown error'}` }, { status: 500 });
+    return {
+      timestamp: new Date().toISOString(),
+      violations: [],
+      passes: [],
+      incomplete: [],
+      inapplicable: [],
+      summary: {
+        totalViolations: 0,
+        critical: 0,
+        serious: 0,
+        moderate: 0,
+        minor: 0,
+      },
+      error: `Accessibility scan failed: ${error}`,
+      url: 'email-content'
+    };
+  } finally {
+    await browser.close();
   }
 }

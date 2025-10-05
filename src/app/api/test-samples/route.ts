@@ -7,15 +7,15 @@ async function sendSampleToMailHog(sample: any, htmlContent: string) {
   const timestamp = new Date().toISOString();
 
   const transporter = nodemailer.createTransport({
-    host: process.env.MAILHOG_HOST,
-    port: Number(process.env.MAILHOG_SMTP_PORT),
+    host: process.env.MAILHOG_HOST || 'localhost',
+    port: Number(process.env.MAILHOG_SMTP_PORT || '1025'),
     secure: process.env.SMTP_SECURE === 'true',
     ignoreTLS: process.env.SMTP_IGNORE_TLS === 'true',
   });
 
   const mailOptions = {
-    from: process.env.TEST_FROM_EMAIL,
-    to: process.env.TEST_TO_EMAIL,
+    from: process.env.TEST_FROM_EMAIL || 'test@example.com',
+    to: process.env.TEST_TO_EMAIL || 'test@local.test',
     subject: `Sample Test: ${sample.name} - ${timestamp}`,
     html: htmlContent,
     text: `Test sample: ${sample.name}\nDescription: ${sample.description}\nFeatures: ${sample.features.join(', ')}`
