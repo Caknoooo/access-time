@@ -24,7 +24,6 @@ export function useEmailMonitoring(): UseEmailMonitoringReturn {
   const [showPreview, setShowPreview] = useState(false);
   const [previewContent, setPreviewContent] = useState<{sample: EmailSample, content: string} | null>(null);
 
-  // Load samples on mount
   useEffect(() => {
     const loadSamples = async () => {
       try {
@@ -39,14 +38,11 @@ export function useEmailMonitoring(): UseEmailMonitoringReturn {
     loadSamples();
   }, []);
 
-  // Setup Server-Sent Events
   useEffect(() => {
     logger.info('Setting up email monitoring');
     
-    // Connect to SSE
     const eventSource = EmailService.connectToEvents();
     
-    // Handle different event types
     const handleEmailEvent = (event: EmailEvent) => {
       switch (event.type) {
         case 'email_received':
@@ -75,7 +71,6 @@ export function useEmailMonitoring(): UseEmailMonitoringReturn {
 
     EmailService.addEventListener('main', handleEmailEvent);
 
-    // Cleanup on unmount
     return () => {
       logger.info('Cleaning up email monitoring');
       EmailService.removeEventListener('main');
@@ -97,9 +92,6 @@ export function useEmailMonitoring(): UseEmailMonitoringReturn {
       
       logger.info('Sample sent to MailHog, waiting for detection');
 
-      // Wait for email detection and processing via SSE
-      // The actual scanning will be handled by the backend and reported via SSE
-      
     } catch (err) {
       logger.error('Error testing sample', { error: err instanceof Error ? err.message : 'Unknown error' });
       setStatus('error');

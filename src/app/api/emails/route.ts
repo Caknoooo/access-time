@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const MAILHOG_API_URL = `http://${process.env.MAILHOG_HOST}:${process.env.MAILHOG_WEB_PORT}/api/v2`;
+const MAILHOG_API_URL = process.env.MAILHOG_API_URL || 'https://access-time-mailhog.bengcare.com/api/v2';
 
 export async function GET() {
   try {

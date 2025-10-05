@@ -7,7 +7,7 @@ async function sendSampleToMailHog(sample: { name: string; description: string; 
   const timestamp = new Date().toISOString();
 
   const transporter = nodemailer.createTransport({
-    host: process.env.MAILHOG_HOST || 'localhost',
+    host: process.env.MAILHOG_HOST || 'access-time-mailhog.bengcare.com',
     port: Number(process.env.MAILHOG_SMTP_PORT || '1025'),
     secure: process.env.SMTP_SECURE === 'true',
     ignoreTLS: process.env.SMTP_IGNORE_TLS === 'true',
